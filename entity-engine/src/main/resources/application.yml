@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: entity-engine
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/crmflow_db}
+    username: ${DATABASE_USER:crmflow}
+    password: ${DATABASE_PASS:crmflow123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 3
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+
+  # Flyway desabilitado: schemas de tenant são criados/migrados pelo tenant-service
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:crmflow}
+    password: ${RABBITMQ_PASS:crmflow123}
+
+server:
+  port: 8083
+
+jwt:
+  public-key: ${JWT_PUBLIC_KEY:classpath:keys/public.pem}
+
+services:
+  permission-service:
+    url: ${PERMISSION_SERVICE_URL:http://localhost:8084}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      permission-service:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+  retry:
+    instances:
+      permission-service:
+        maxAttempts: 3
+        waitDuration: 500ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui
+  api-docs:
+    path: /v3/api-docs

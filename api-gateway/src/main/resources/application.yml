@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: api-gateway
+  threads:
+    virtual:
+      enabled: true
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/auth/**
+        - id: tenant-service
+          uri: ${TENANT_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/tenants/**
+        - id: entity-engine
+          uri: ${ENTITY_ENGINE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/entities/**
+        - id: permission-service
+          uri: ${PERMISSION_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/permissions/**
+        - id: analytics-service
+          uri: ${ANALYTICS_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/analytics/**
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+
+server:
+  port: 8080
+
+jwt:
+  public-key: ${JWT_PUBLIC_KEY:classpath:keys/public.pem}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

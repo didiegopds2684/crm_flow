@@ -1,0 +1,26 @@
+# Maven
+target/
+*.class
+*.jar
+
+# Chaves RSA — a chave PRIVADA nunca deve entrar no repositório
+**/keys/private.pem
+# public.pem pode ser commitada (é chave pública por definição)
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Spring Boot
+*.log
+logs/
+
+# Docker
+*.env
+.env

@@ -1,0 +1,224 @@
+services:
+
+  # ── Infraestrutura ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: crmflow-postgres
+    environment:
+      POSTGRES_DB: crmflow_db
+      POSTGRES_USER: crmflow
+      POSTGRES_PASSWORD: crmflow123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crmflow -d crmflow_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: crmflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: crmflow-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: crmflow
+      RABBITMQ_DEFAULT_PASS: crmflow123
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Microsserviços ──────────────────────────────────────────────────────────
+  # Cada Dockerfile usa context: . para acessar o pom.xml pai do monorepo Maven
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    container_name: crmflow-auth
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/crmflow_db
+      DATABASE_USER: crmflow
+      DATABASE_PASS: crmflow123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  tenant-service:
+    build:
+      context: .
+      dockerfile: tenant-service/Dockerfile
+    container_name: crmflow-tenant
+    ports:
+      - "8082:8082"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/crmflow_db
+      DATABASE_USER: crmflow
+      DATABASE_PASS: crmflow123
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  entity-engine:
+    build:
+      context: .
+      dockerfile: entity-engine/Dockerfile
+    container_name: crmflow-entity
+    ports:
+      - "8083:8083"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/crmflow_db
+      DATABASE_USER: crmflow
+      DATABASE_PASS: crmflow123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: crmflow
+      RABBITMQ_PASS: crmflow123
+      PERMISSION_SERVICE_URL: http://permission-service:8084
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  permission-service:
+    build:
+      context: .
+      dockerfile: permission-service/Dockerfile
+    container_name: crmflow-permission
+    ports:
+      - "8084:8084"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/crmflow_db
+      DATABASE_USER: crmflow
+      DATABASE_PASS: crmflow123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: analytics-service/Dockerfile
+    container_name: crmflow-analytics
+    ports:
+      - "8085:8085"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/crmflow_db
+      DATABASE_USER: crmflow
+      DATABASE_PASS: crmflow123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: crmflow
+      RABBITMQ_PASS: crmflow123
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: crmflow-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8081
+      TENANT_SERVICE_URL: http://tenant-service:8082
+      ENTITY_ENGINE_URL: http://entity-engine:8083
+      PERMISSION_SERVICE_URL: http://permission-service:8084
+      ANALYTICS_SERVICE_URL: http://analytics-service:8085
+    depends_on:
+      auth-service:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: crmflow-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      CRMFLOW_API_URL: http://api-gateway:8080
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - api-gateway
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
