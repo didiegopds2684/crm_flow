@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CRM Flow — Redesenho com módulos</title>
+<style>
+  :root {
+    --background: #f6f0e6;
+    --foreground: #13212f;
+    --muted: #51616d;
+    --line: rgba(19, 33, 47, 0.12);
+    --accent: #d36d3f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--background); color: var(--foreground); font-family: "Avenir Next","Segoe UI","Helvetica Neue",sans-serif; }
+  html { background:
+    radial-gradient(circle at 0% 0%, rgba(211,109,63,0.18), transparent 28%),
+    radial-gradient(circle at 100% 10%, rgba(31,77,71,0.12), transparent 26%),
+    linear-gradient(180deg, #fdfbf7 0%, #f6f0e6 52%, #efe6d9 100%);
+  }
+  input,button,select,textarea { font: inherit; }
+  .display-font { font-family: "Iowan Old Style","Palatino Linotype","Book Antiqua",serif; }
+  ::selection { background: rgba(211,109,63,0.22); }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="shell.jsx"></script>
+  <script type="text/babel" src="pages-a.jsx"></script>
+  <script type="text/babel" src="pages-b.jsx"></script>
+  <script type="text/babel" src="design-canvas.jsx"></script>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect } = React;
+
+    // Tweaks: sidebar mode + accent hue
+    const DEFAULTS = /*EDITMODE-BEGIN*/{
+      "sidebarMode": "expanded",
+      "accentHue": 140,
+      "denseTables": false,
+      "initialModule": "overview"
+    }/*EDITMODE-END*/;
+
+    function App() {
+      const [tweaks, setTweaks] = useState(DEFAULTS);
+      const [tweaksOn, setTweaksOn] = useState(false);
+      const [module, setModule] = useState(DEFAULTS.initialModule);
+
+      useEffect(() => {
+        function onMsg(e) {
+          const d = e.data || {};
+          if (d.type === "__activate_edit_mode") setTweaksOn(true);
+          else if (d.type === "__deactivate_edit_mode") setTweaksOn(false);
+        }
+        window.addEventListener("message", onMsg);
+        window.parent.postMessage({ type: "__edit_mode_available" }, "*");
+        return () => window.removeEventListener("message", onMsg);
+      }, []);
+
+      useEffect(() => {
+        // apply hue to --accent
+        const h = tweaks.accentHue;
+        const c = `oklch(0.64 0.14 ${h})`;
+        document.documentElement.style.setProperty("--accent", c);
+      }, [tweaks.accentHue]);
+
+      function update(patch) {
+        const next = { ...tweaks, ...patch };
+        setTweaks(next);
+        window.parent.postMessage({ type: "__edit_mode_set_keys", edits: patch }, "*");
+      }
+
+      // shared module page renderer
+      const renderModule = (id, overrides={}) => {
+        const mode = overrides.sidebarMode ?? tweaks.sidebarMode;
+        const titleMap = {
+          overview:   ["Overview",    "Pulso geral da operação"],
+          tenants:    ["Tenants",     "Empresas provisionadas no ambiente"],
+          users:      ["Usuários",    "Membros, convites e papéis"],
+          permissions:["Permissões",  "Roles e matriz de políticas"],
+          entities:   ["Entidades",   "Schemas dinâmicos por tenant"],
+          records:    ["Registros",   "Dados vivos · tabela, kanban e cards"],
+          automations:["Automações",  "Triggers e webhooks · em breve"],
+          settings:   ["Configurações","Preferências do workspace · em breve"],
+        };
+        const [title, subtitle] = titleMap[id] || ["—",""];
+        const PageMap = {
+          overview: OverviewPage, tenants: TenantsPage, users: UsersPage,
+          permissions: PermissionsPage, entities: EntitiesPage, records: RecordsPage,
+        };
+        const Page = PageMap[id] || (() => (
+          <div style={{padding: 40, color:"var(--muted)", fontSize: 14}}>
+            Em breve — módulo <b>{id}</b> ainda não implementado neste protótipo.
+          </div>
+        ));
+        const breadcrumbMap = {
+          overview:"Workspace / Overview", tenants:"Workspace / Tenants",
+          users:"Pessoas / Usuários", permissions:"Pessoas / Permissões",
+          entities:"Dados / Entidades", records:"Dados / Registros",
+          automations:"Dados / Automações", settings:"Sistema / Configurações",
+        };
+        return (
+          <div style={{ display:"flex", width: 1440, height: 900, background:"rgba(253,251,247,0.4)", borderRadius: 18, overflow:"hidden", border:"1px solid var(--line)" }}>
+            <Sidebar active={id} mode={mode} onSelect={setModule} />
+            <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth: 0 }}>
+              <Topbar title={title} subtitle={subtitle} tenant="Acme Operações" breadcrumb={breadcrumbMap[id]} actions={<PrimaryBtn>+ Ação rápida</PrimaryBtn>}/>
+              <div style={{ flex: 1, minHeight: 0 }}><Page/></div>
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <>
+          <DesignCanvas title="CRM Flow — separação em módulos" subtitle="Sidebar persistente · tela dedicada por módulo · componentes reutilizados do design existente (paleta creme, accent laranja queimado, display Iowan)">
+            <DCSection id="main" title="Navegação por módulo" subtitle="Um app shell com navbar lateral. O usuário atual abaixo é o Overview; alterne no próprio artboard.">
+              <DCArtboard id="live" label={`Live · módulo: ${module}`} width={1460} height={920}>
+                <div style={{ padding: 10 }}>{renderModule(module)}</div>
+              </DCArtboard>
+            </DCSection>
+
+            <DCSection id="modules" title="Cada módulo, sua própria tela" subtitle="Layouts específicos em vez da pilha única do dashboard atual.">
+              <DCArtboard id="overview" label="Overview" width={1460} height={920}><div style={{padding:10}}>{renderModule("overview")}</div></DCArtboard>
+              <DCArtboard id="tenants"  label="Tenants"  width={1460} height={920}><div style={{padding:10}}>{renderModule("tenants")}</div></DCArtboard>
+              <DCArtboard id="users"    label="Usuários" width={1460} height={920}><div style={{padding:10}}>{renderModule("users")}</div></DCArtboard>
+              <DCArtboard id="permissions" label="Permissões" width={1460} height={920}><div style={{padding:10}}>{renderModule("permissions")}</div></DCArtboard>
+              <DCArtboard id="entities" label="Entidades (schema builder)" width={1460} height={920}><div style={{padding:10}}>{renderModule("entities")}</div></DCArtboard>
+              <DCArtboard id="records"  label="Registros dinâmicos"       width={1460} height={920}><div style={{padding:10}}>{renderModule("records")}</div></DCArtboard>
+            </DCSection>
+
+            <DCSection id="sidebar-variants" title="Variações da navbar" subtitle="Para ver como a mesma estrutura reage quando colapsada.">
+              <DCArtboard id="expanded"  label="Sidebar expandida" width={1460} height={920}><div style={{padding:10}}>{renderModule("overview",{sidebarMode:"expanded"})}</div></DCArtboard>
+              <DCArtboard id="collapsed" label="Sidebar colapsada" width={1460} height={920}><div style={{padding:10}}>{renderModule("overview",{sidebarMode:"collapsed"})}</div></DCArtboard>
+            </DCSection>
+          </DesignCanvas>
+
+          {tweaksOn && (
+            <div style={{
+              position:"fixed", right: 18, bottom: 18, zIndex: 50,
+              width: 300, background:"rgba(253,251,247,0.98)", border:"1px solid var(--line)",
+              borderRadius: 16, padding: 16, boxShadow:"0 20px 50px rgba(19,33,47,0.18)"
+            }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                <div style={{ fontFamily:'"Iowan Old Style",serif', fontSize: 18 }}>Tweaks</div>
+                <span style={{ fontSize: 10, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".12em" }}>CRM Flow</span>
+              </div>
+              <div style={{ fontSize: 12, color:"var(--muted)", marginTop: 4, marginBottom: 14 }}>Ajustes rápidos para comparar direções.</div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform:"uppercase", letterSpacing:".1em", color:"var(--muted)", marginBottom: 8 }}>Modo da sidebar</div>
+              <div style={{ display:"flex", gap: 6, marginBottom: 14 }}>
+                {[["expanded","Expandida"],["collapsed","Apenas ícones"]].map(([v,l]) => (
+                  <button key={v} onClick={() => update({sidebarMode:v})} style={{
+                    flex:1, border: tweaks.sidebarMode===v?"1px solid #13212f":"1px solid var(--line)",
+                    borderRadius: 10, padding:"8px 6px", fontSize: 12, fontWeight: 600,
+                    background: tweaks.sidebarMode===v?"#13212f":"rgba(255,255,255,0.8)",
+                    color: tweaks.sidebarMode===v?"#fff":"var(--foreground)", cursor:"pointer"
+                  }}>{l}</button>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform:"uppercase", letterSpacing:".1em", color:"var(--muted)", marginBottom: 8 }}>Hue do accent ({tweaks.accentHue}°)</div>
+              <input type="range" min="0" max="360" value={tweaks.accentHue} onChange={e => update({accentHue: Number(e.target.value)})} style={{ width:"100%" }}/>
+              <div style={{ display:"flex", gap: 6, marginTop: 6 }}>
+                {[34,140,250,10].map(h => (
+                  <button key={h} onClick={() => update({accentHue:h})} style={{ flex:1, height: 22, borderRadius: 6, border:"1px solid var(--line)", background:`oklch(0.64 0.14 ${h})`, cursor:"pointer" }}/>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform:"uppercase", letterSpacing:".1em", color:"var(--muted)", marginTop: 14, marginBottom: 8 }}>Módulo inicial do live</div>
+              <select value={module} onChange={e => setModule(e.target.value)} style={{ width:"100%", border:"1px solid var(--line)", borderRadius: 10, padding:"8px 10px", background:"rgba(255,255,255,0.9)" }}>
+                {MODULES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>

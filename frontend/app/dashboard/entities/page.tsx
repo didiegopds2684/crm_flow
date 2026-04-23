@@ -346,7 +346,7 @@ function NewEntityDrawer({
   tenantId: string;
   existingEntities: EntityDefinitionResponse[];
   onClose: () => void;
-  onCreated: (e: EntityDefinitionResponse, openFields: boolean) => void;
+  onCreated: (e: EntityDefinitionResponse) => void;
 }) {
   const [name,        setName]        = useState("");
   const [slug,        setSlug]        = useState("");
@@ -424,7 +424,7 @@ function NewEntityDrawer({
     return { form, fe };
   }
 
-  async function handleSubmit(afterCreate: "close" | "addFields") {
+  async function handleSubmit() {
     const { form, fe } = validate();
     if (Object.keys(form).length > 0 || Object.keys(fe).length > 0) {
       setErrors(form); setFieldErrors(fe);
@@ -464,7 +464,7 @@ function NewEntityDrawer({
         setErrors({ general: (data as { message?: string }).message ?? "Erro ao criar entidade." });
         return;
       }
-      onCreated(data.data, afterCreate === "addFields");
+      onCreated(data.data);
       onClose();
     } catch {
       setErrors({ general: "Erro de conexão. Tente novamente." });
@@ -481,23 +481,17 @@ function NewEntityDrawer({
       footer={
         <>
           <GhostBtn onClick={onClose} disabled={submitting}>Cancelar</GhostBtn>
-          <PrimaryBtn
-            onClick={() => handleSubmit("close")}
+          <AccentBtn
+            icon="plus"
+            onClick={handleSubmit}
             disabled={submitting || fields.length === 0}
           >
             {submitting ? "Criando…" : "Criar entidade"}
-          </PrimaryBtn>
-          <AccentBtn
-            icon="plus"
-            onClick={() => handleSubmit("addFields")}
-            disabled={submitting || fields.length === 0}
-          >
-            {submitting ? "Criando…" : "Criar e adicionar campos"}
           </AccentBtn>
         </>
       }
     >
-      <form onSubmit={(e) => { e.preventDefault(); handleSubmit("close"); }} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
         {errors.general && (
           <div style={{ background: "rgba(138,47,47,0.08)", border: "1px solid rgba(138,47,47,0.22)", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#7a2020", fontWeight: 500, display: "flex", alignItems: "center", gap: 10 }}>
@@ -590,8 +584,6 @@ function NewEntityDrawer({
 
 // ─── New Field Drawer ─────────────────────────────────────────────────────────
 
-type FieldFormErrors = { name?: string; options?: string; general?: string };
-
 function NewFieldDrawer({
   open, tenantId, entity, otherEntities, onClose, onSaved,
 }: {
@@ -602,83 +594,85 @@ function NewFieldDrawer({
   onClose: () => void;
   onSaved: (e: EntityDefinitionResponse) => void;
 }) {
-  const [name,          setName]          = useState("");
-  const [nameTouched,   setNameTouched]   = useState(false);
-  const [label,         setLabel]         = useState("");
-  const [type,          setType]          = useState<EntityFieldType>("STRING");
-  const [required,      setRequired]      = useState(false);
-  const [multiple,      setMultiple]      = useState(false);
-  const [relatedEntity, setRelatedEntity] = useState("");
-  const [options,       setOptions]       = useState<string[]>([]);
-  const [optionInput,   setOptionInput]   = useState("");
-  const [minLen,        setMinLen]        = useState("");
-  const [maxLen,        setMaxLen]        = useState("");
-  const [minVal,        setMinVal]        = useState("");
-  const [maxVal,        setMaxVal]        = useState("");
-  const [errors,        setErrors]        = useState<FieldFormErrors>({});
-  const [submitting,    setSubmitting]    = useState(false);
-  const labelRef = useRef<HTMLInputElement>(null);
+  const [fields,      setFields]      = useState<FieldDraft[]>([makeFieldDraft()]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [general,     setGeneral]     = useState("");
+  const [submitting,  setSubmitting]  = useState(false);
 
   useEffect(() => {
     if (open) {
-      setName(""); setNameTouched(false); setLabel(""); setType("STRING");
-      setRequired(false); setMultiple(false); setRelatedEntity(""); setOptions([]); setOptionInput("");
-      setMinLen(""); setMaxLen(""); setMinVal(""); setMaxVal(""); setErrors({});
-      setTimeout(() => labelRef.current?.focus(), 120);
+      setFields([makeFieldDraft()]);
+      setFieldErrors({}); setGeneral("");
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!nameTouched) setName(toFieldName(label));
-  }, [label, nameTouched]);
-
-  function addOption() {
-    const v = optionInput.trim();
-    if (!v || options.includes(v)) return;
-    setOptions((prev) => [...prev, v]);
-    setOptionInput("");
+  function updateField(uid: string, patch: Partial<FieldDraft>) {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.uid !== uid) return f;
+        const updated = { ...f, ...patch };
+        if ("label" in patch && !updated.nameTouched) {
+          updated.name = toFieldName(updated.label);
+        }
+        return updated;
+      })
+    );
   }
 
-  function removeOption(o: string) {
-    setOptions((prev) => prev.filter((x) => x !== o));
+  function toggleField(uid: string) {
+    setFields((prev) => prev.map((f) => (f.uid === uid ? { ...f, open: !f.open } : f)));
   }
 
-  function validate(): FieldFormErrors {
-    const e: FieldFormErrors = {};
-    if (!name || !/^[a-z][a-z0-9_]*$/.test(name)) e.name = "Nome: letras minúsculas, números e underscores, começando com letra.";
-    if (entity.fields.some((f) => f.name === name)) e.name = `Campo "${name}" já existe nesta entidade.`;
-    if (type === "ENUM" && options.length < 2) e.options = "ENUM precisa de pelo menos 2 opções.";
-    if (type === "RELATION" && !relatedEntity) e.general = "Selecione a entidade alvo da relação.";
-    return e;
+  function removeField(uid: string) {
+    setFields((prev) => prev.filter((f) => f.uid !== uid));
   }
 
-  function buildValidations() {
-    if (type === "RELATION") return { entity: relatedEntity };
-    const v: Record<string, unknown> = {};
-    if (type === "STRING" || type === "TEXT") {
-      if (minLen) v.minLength = Number(minLen);
-      if (maxLen) v.maxLength = Number(maxLen);
+  function addField() {
+    setFields((prev) => [...prev.map((f) => ({ ...f, open: false })), makeFieldDraft()]);
+  }
+
+  function validate(): Record<string, string> {
+    const fe: Record<string, string> = {};
+    const existingNames = new Set(entity.fields.map((f) => f.name));
+    const seenNew = new Set<string>();
+
+    for (const f of fields) {
+      if (!f.name || !/^[a-z][a-z0-9_]*$/.test(f.name)) {
+        fe[`${f.uid}.name`] = "Nome inválido.";
+      } else if (existingNames.has(f.name)) {
+        fe[`${f.uid}.name`] = `"${f.name}" já existe na entidade.`;
+      } else if (seenNew.has(f.name)) {
+        fe[`${f.uid}.name`] = `"${f.name}" duplicado.`;
+      } else {
+        seenNew.add(f.name);
+      }
+      if (f.type === "RELATION" && !f.relatedEntity) fe[`${f.uid}.relation`] = "Selecione a entidade alvo.";
+      if (f.type === "ENUM" && f.options.length < 2) fe[`${f.uid}.options`] = "Mínimo 2 opções.";
     }
-    if (type === "NUMBER") {
-      if (minVal) v.min = Number(minVal);
-      if (maxVal) v.max = Number(maxVal);
-    }
-    return Object.keys(v).length > 0 ? v : null;
+    return fe;
   }
 
-  async function handleSubmit(ev: React.FormEvent) {
-    ev.preventDefault();
-    const errs = validate();
-    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
-    setErrors({}); setSubmitting(true);
+  async function handleSubmit() {
+    setGeneral("");
+    const fe = validate();
+    if (Object.keys(fe).length > 0) {
+      setFieldErrors(fe);
+      const errorUids = new Set(Object.keys(fe).map((k) => k.split(".")[0]));
+      setFields((prev) => prev.map((f) => ({ ...f, open: f.open || errorUids.has(f.uid) })));
+      return;
+    }
+    setFieldErrors({}); setSubmitting(true);
 
-    const newField: EntityFieldDefinition = {
-      name, label: label.trim() || name, type,
-      required, multiple,
+    const newFields: EntityFieldDefinition[] = fields.map((f) => ({
+      name: f.name,
+      label: f.label.trim() || f.name,
+      type: f.type,
+      required: f.required,
+      multiple: f.multiple,
       defaultValue: undefined,
-      validations: buildValidations(),
-      options: type === "ENUM" ? options : null,
-    };
+      validations: buildFieldValidations(f),
+      options: f.type === "ENUM" ? f.options : null,
+    }));
 
     const body = {
       name: entity.name,
@@ -686,7 +680,7 @@ function NewFieldDrawer({
       displayName: entity.displayName,
       description: entity.description,
       icon: entity.icon,
-      fields: [...entity.fields, newField],
+      fields: [...entity.fields, ...newFields],
     };
 
     try {
@@ -696,198 +690,65 @@ function NewFieldDrawer({
         body: JSON.stringify(body),
       });
       const data: ApiResponse<EntityDefinitionResponse> = await res.json();
-      if (!res.ok || !data.data) { setErrors({ general: (data as { message?: string }).message ?? "Erro ao salvar campo." }); return; }
+      if (!res.ok || !data.data) { setGeneral((data as { message?: string }).message ?? "Erro ao salvar campos."); return; }
       onSaved(data.data);
       onClose();
     } catch {
-      setErrors({ general: "Erro de conexão. Tente novamente." });
+      setGeneral("Erro de conexão. Tente novamente.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  const showStringValidations = type === "STRING" || type === "TEXT";
-  const showNumberValidations  = type === "NUMBER";
-  const showEnumOptions        = type === "ENUM";
+  const plural = fields.length !== 1;
 
   return (
     <Drawer
-      open={open} onClose={onClose} width={500}
-      title="Novo campo"
-      subtitle={`Adicionando campo à entidade ${entity.displayName ?? entity.name}`}
+      open={open} onClose={onClose} width={540}
+      title="Adicionar campos"
+      subtitle={`Adicionando à entidade ${entity.displayName ?? entity.name}`}
       footer={
         <>
           <GhostBtn onClick={onClose} disabled={submitting}>Cancelar</GhostBtn>
-          <AccentBtn icon="plus" onClick={handleSubmit as never} disabled={submitting}>
-            {submitting ? "Salvando…" : "Adicionar campo"}
+          <AccentBtn icon="plus" onClick={handleSubmit} disabled={submitting || fields.length === 0}>
+            {submitting ? "Salvando…" : `Adicionar campo${plural ? "s" : ""}`}
           </AccentBtn>
         </>
       }
     >
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-        {errors.general && (
+        {general && (
           <div style={{ background: "rgba(138,47,47,0.08)", border: "1px solid rgba(138,47,47,0.22)", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#7a2020", fontWeight: 500, display: "flex", alignItems: "center", gap: 10 }}>
-            <Icon name="x" size={15} stroke="#7a2020" /> {errors.general}
+            <Icon name="x" size={15} stroke="#7a2020" /> {general}
           </div>
         )}
 
-        {/* Preview */}
-        {(label || name) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, background: "rgba(15,47,56,0.04)", border: "1px solid var(--line)" }}>
-            <Pill tone={TYPE_TONES[type] ?? "neutral"}>{type}</Pill>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{label || name}</span>
-            <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--muted)" }}>{name}</span>
-            {required && <span style={{ marginLeft: "auto" }}><Pill tone="amber">Obrigatório</Pill></span>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".08em" }}>
+            Campos <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>({fields.length})</span>
           </div>
-        )}
-
-        {/* Label */}
-        <Field label="Label de exibição" required>
-          <input ref={labelRef} value={label} onChange={(e) => setLabel(e.target.value)}
-            placeholder="Ex: Nome completo" maxLength={200} style={inputStyle} />
-        </Field>
-
-        {/* Field name */}
-        <Field label="Nome do campo" required hint="snake_case. Identifica o campo no banco de dados." error={errors.name}>
-          <div style={{ position: "relative" }}>
-            <input value={name}
-              onChange={(e) => { setNameTouched(true); setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "")); }}
-              placeholder="nome_completo" maxLength={60}
-              style={{ ...inputStyle, fontFamily: "ui-monospace,monospace", fontSize: 12, ...(errors.name ? inputErrorStyle : {}), paddingRight: nameTouched ? 80 : 14 }} />
-            {nameTouched && (
-              <button type="button" onClick={() => { setNameTouched(false); setName(toFieldName(label)); }}
-                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: 0, background: "none", fontSize: 11, color: "var(--muted)", cursor: "pointer", fontWeight: 600 }}>
-                Auto ↺
-              </button>
-            )}
-          </div>
-        </Field>
-
-        {/* Type */}
-        <Field label="Tipo de campo">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
-            {FIELD_TYPES.map((t) => {
-              const active = type === t.value;
-              return (
-                <button key={t.value} type="button" onClick={() => setType(t.value)}
-                  style={{ padding: "9px 6px", borderRadius: 8, cursor: "pointer", border: active ? "2px solid #1c3d58" : "2px solid transparent", background: active ? "rgba(28,61,88,0.10)" : "rgba(255,255,255,0.8)", color: active ? "#1c3d58" : "var(--muted)", fontSize: 11, fontWeight: 700, textAlign: "center", outline: "none" }}>
-                  {t.label}
-                  <div style={{ fontSize: 10, fontWeight: 400, marginTop: 1, opacity: 0.75 }}>{t.hint}</div>
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-
-        {/* RELATION: entity selector */}
-        {type === "RELATION" && (
-          <Field label="Entidade alvo" required hint="Qual entidade este campo referencia.">
-            {otherEntities.length === 0 ? (
-              <div style={{ ...inputStyle, color: "var(--muted)", fontSize: 12, display: "flex", alignItems: "center" }}>
-                Nenhuma outra entidade disponível neste tenant.
-              </div>
-            ) : (
-              <select
-                value={relatedEntity}
-                onChange={(e) => setRelatedEntity(e.target.value)}
-                style={{ ...inputStyle, cursor: "pointer" }}
-              >
-                <option value="">Selecione uma entidade…</option>
-                {otherEntities.map((e) => (
-                  <option key={e.id} value={e.slug}>
-                    {e.displayName ?? e.name} ({e.slug})
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        )}
-
-        {/* Required + Multiple */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <Toggle
-            checked={required}
-            onChange={setRequired}
-            label="Obrigatório"
-            hint="Deve ser preenchido"
-          />
-          <Toggle
-            checked={multiple}
-            onChange={setMultiple}
-            label="Múltiplo"
-            hint="Aceita vários valores"
-          />
+          <button type="button" onClick={addField}
+            style={{ border: "1px solid var(--line)", background: "rgba(255,255,255,0.9)", borderRadius: 7, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600, color: "#1c3d58" }}>
+            + Campo
+          </button>
         </div>
 
-        {/* ENUM options */}
-        {showEnumOptions && (
-          <Field label="Opções do ENUM" required error={errors.options}>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input
-                value={optionInput}
-                onChange={(e) => setOptionInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOption(); } }}
-                placeholder="Adicionar opção…"
-                maxLength={100}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button type="button" onClick={addOption}
-                style={{ padding: "0 14px", borderRadius: 8, border: "1px solid var(--line)", background: "rgba(255,255,255,0.9)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-                +
-              </button>
-            </div>
-            {options.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {options.map((o) => (
-                  <div key={o} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: "rgba(28,61,88,0.10)", fontSize: 12, fontWeight: 600, color: "#1c3d58" }}>
-                    {o}
-                    <button type="button" onClick={() => removeOption(o)}
-                      style={{ border: 0, background: "none", cursor: "pointer", color: "#1c3d58", padding: 0, fontSize: 14, lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Field>
-        )}
-
-        {/* String/Text validations */}
-        {showStringValidations && (
-          <Field label="Validações (opcional)">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>Mín. caracteres</div>
-                <input type="number" min={0} value={minLen} onChange={(e) => setMinLen(e.target.value)}
-                  placeholder="0" style={{ ...inputStyle, width: "100%" }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>Máx. caracteres</div>
-                <input type="number" min={0} value={maxLen} onChange={(e) => setMaxLen(e.target.value)}
-                  placeholder="500" style={{ ...inputStyle, width: "100%" }} />
-              </div>
-            </div>
-          </Field>
-        )}
-
-        {/* Number validations */}
-        {showNumberValidations && (
-          <Field label="Validações (opcional)">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>Valor mínimo</div>
-                <input type="number" value={minVal} onChange={(e) => setMinVal(e.target.value)}
-                  placeholder="0" style={{ ...inputStyle, width: "100%" }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>Valor máximo</div>
-                <input type="number" value={maxVal} onChange={(e) => setMaxVal(e.target.value)}
-                  placeholder="9999" style={{ ...inputStyle, width: "100%" }} />
-              </div>
-            </div>
-          </Field>
-        )}
-
-      </form>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {fields.map((f, i) => (
+            <FieldAccordionItem
+              key={f.uid}
+              f={f} index={i}
+              errors={fieldErrors}
+              existingEntities={otherEntities}
+              canRemove={fields.length > 1}
+              onChange={updateField}
+              onToggle={toggleField}
+              onRemove={removeField}
+            />
+          ))}
+        </div>
+      </div>
     </Drawer>
   );
 }
@@ -917,10 +778,9 @@ export default function EntitiesPage() {
       .finally(() => setLoading(false));
   }, [activeTenant]);
 
-  function handleEntityCreated(e: EntityDefinitionResponse, openFields: boolean) {
+  function handleEntityCreated(e: EntityDefinitionResponse) {
     setEntities((prev) => [e, ...prev]);
     setSelected(e);
-    if (openFields) setNewFieldOpen(true);
   }
 
   function handleFieldSaved(updated: EntityDefinitionResponse) {
