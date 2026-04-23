@@ -35,7 +35,7 @@ public class TenantSchemaResolver {
                 throw new IllegalArgumentException("Tenant não encontrado: " + tenantId);
             }
 
-            String schema = "tenant_" + slug;
+            String schema = "tenant_" + slug.replace('-', '_');
             stringRedisTemplate.opsForValue().set(cacheKey, schema, Duration.ofMinutes(30));
             return schema;
 

@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.flywaydb.core.Flyway;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
 import java.util.UUID;
@@ -17,6 +19,7 @@ public class TenantSchemaService {
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void initializeTenantSchema(String slug, UUID tenantId) {
         String schemaName = "tenant_" + slug.replace('-', '_');
         createSchema(schemaName);
@@ -36,6 +39,7 @@ public class TenantSchemaService {
                 .schemas(schemaName)
                 .locations("classpath:db/migration/tenant")
                 .baselineOnMigrate(true)
+                .baselineVersion("0")
                 .load();
         int applied = flyway.migrate().migrationsExecuted;
         log.debug("Migrations aplicadas no schema {}: {}", schemaName, applied);

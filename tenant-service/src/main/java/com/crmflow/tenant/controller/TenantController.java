@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,9 +28,11 @@ public class TenantController {
     @PostMapping
     @Operation(summary = "Cria novo tenant e provisiona seu schema PostgreSQL")
     public ResponseEntity<ApiResponse<TenantResponse>> create(
-            @Valid @RequestBody CreateTenantRequest request) {
+            @Valid @RequestBody CreateTenantRequest request,
+            Authentication authentication) {
         log.info("Criando tenant: slug={}", request.slug());
-        TenantResponse response = tenantService.create(request);
+        UUID creatorId = UUID.fromString(authentication.getName());
+        TenantResponse response = tenantService.create(request, creatorId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.of(response, "Tenant criado com sucesso"));
     }

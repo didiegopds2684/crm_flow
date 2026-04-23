@@ -26,7 +26,7 @@ public class TenantService {
     private final TenantUserRepository tenantUserRepository;
     private final TenantSchemaService tenantSchemaService;
 
-    public TenantResponse create(CreateTenantRequest request) {
+    public TenantResponse create(CreateTenantRequest request, UUID creatorId) {
         if (tenantRepository.existsBySlug(request.slug())) {
             throw new TenantAlreadyExistsException("Slug já em uso: " + request.slug());
         }
@@ -38,10 +38,15 @@ public class TenantService {
 
         Tenant saved = tenantRepository.save(tenant);
 
-        // Cria schema PostgreSQL e aplica migrations V1-V4
         tenantSchemaService.initializeTenantSchema(saved.getSlug(), saved.getId());
 
-        log.info("Tenant criado: id={}, slug={}", saved.getId(), saved.getSlug());
+        TenantUser creator = new TenantUser();
+        creator.setTenantId(saved.getId());
+        creator.setUserId(creatorId);
+        creator.setRole("TENANT_ADMIN");
+        tenantUserRepository.save(creator);
+
+        log.info("Tenant criado: id={}, slug={}, creatorId={}", saved.getId(), saved.getSlug(), creatorId);
         return TenantResponse.from(saved);
     }
 

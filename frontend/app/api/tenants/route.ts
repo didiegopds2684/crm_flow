@@ -25,23 +25,27 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = await request.text();
-  const response = await authorizedBackendFetch("/api/v1/tenants", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body
-  });
+  let response: Response;
+  try {
+    const body = await request.text();
+    response = await authorizedBackendFetch("/api/v1/tenants", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "BACKEND_UNAVAILABLE", message: "Serviço indisponível. Tente novamente.", status: 503 },
+      { status: 503 }
+    );
+  }
 
   if (response.status === 401) {
     clearAuthCookies();
     return NextResponse.json(
-      {
-        error: "UNAUTHORIZED",
-        message: "Sessão expirada",
-        status: 401
-      },
+      { error: "UNAUTHORIZED", message: "Sessão expirada", status: 401 },
       { status: 401 }
     );
   }

@@ -51,24 +51,28 @@ class TenantServiceTest {
 
     @Test
     void create_success() {
+        UUID creatorId = UUID.randomUUID();
         CreateTenantRequest request = new CreateTenantRequest("Empresa Acme", "acme", null);
         when(tenantRepository.existsBySlug("acme")).thenReturn(false);
         when(tenantRepository.save(any(Tenant.class))).thenReturn(tenant);
         doNothing().when(tenantSchemaService).initializeTenantSchema(anyString(), any(UUID.class));
+        when(tenantUserRepository.save(any())).thenReturn(null);
 
-        TenantResponse response = tenantService.create(request);
+        TenantResponse response = tenantService.create(request, creatorId);
 
         assertThat(response.slug()).isEqualTo("acme");
         assertThat(response.name()).isEqualTo("Empresa Acme");
         verify(tenantSchemaService).initializeTenantSchema("acme", tenant.getId());
+        verify(tenantUserRepository).save(any());
     }
 
     @Test
     void create_duplicateSlug_throwsException() {
+        UUID creatorId = UUID.randomUUID();
         CreateTenantRequest request = new CreateTenantRequest("Empresa Acme", "acme", null);
         when(tenantRepository.existsBySlug("acme")).thenReturn(true);
 
-        assertThatThrownBy(() -> tenantService.create(request))
+        assertThatThrownBy(() -> tenantService.create(request, creatorId))
                 .isInstanceOf(TenantAlreadyExistsException.class)
                 .hasMessageContaining("acme");
     }
