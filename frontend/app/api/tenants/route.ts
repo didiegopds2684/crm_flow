@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 
 import {
   authorizedBackendFetch,
+
   clearAuthCookies,
   forwardJson
 } from "@/lib/backend";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const response = await authorizedBackendFetch("/api/v1/tenants");

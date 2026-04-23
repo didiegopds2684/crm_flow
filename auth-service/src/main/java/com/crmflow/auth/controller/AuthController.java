@@ -13,6 +13,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -63,5 +66,33 @@ public class AuthController {
             @AuthenticationPrincipal String userId) {
         UserResponse response = authService.getMe(userId);
         return ResponseEntity.ok(ApiResponse.of(response));
+    }
+
+    @PatchMapping("/users/{userId}")
+    @Operation(summary = "Atualiza nome, email ou senha de um usuário")
+    public ResponseEntity<ApiResponse<UserResponse>> updateUser(
+            @PathVariable UUID userId,
+            @Valid @RequestBody UpdateUserRequest request) {
+        UserResponse response = authService.updateUser(userId, request);
+        return ResponseEntity.ok(ApiResponse.of(response, "Usuário atualizado com sucesso"));
+    }
+
+    @GetMapping("/users/search")
+    @Operation(summary = "Busca usuário por email")
+    public ResponseEntity<ApiResponse<UserResponse>> findByEmail(@RequestParam String email) {
+        UserResponse user = authService.findByEmail(email);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.of(null, "Usuário não encontrado"));
+        }
+        return ResponseEntity.ok(ApiResponse.of(user));
+    }
+
+    @GetMapping("/users")
+    @Operation(summary = "Busca múltiplos usuários por IDs")
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersByIds(
+            @RequestParam List<UUID> ids) {
+        List<UserResponse> users = authService.getUsersByIds(ids);
+        return ResponseEntity.ok(ApiResponse.of(users));
     }
 }

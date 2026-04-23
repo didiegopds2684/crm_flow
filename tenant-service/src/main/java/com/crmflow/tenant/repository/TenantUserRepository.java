@@ -11,6 +11,7 @@ import java.util.UUID;
 @Repository
 public interface TenantUserRepository extends JpaRepository<TenantUser, UUID> {
     List<TenantUser> findByTenantId(UUID tenantId);
+    List<TenantUser> findByUserId(UUID userId);
     Optional<TenantUser> findByTenantIdAndUserId(UUID tenantId, UUID userId);
     boolean existsByTenantIdAndUserId(UUID tenantId, UUID userId);
 }

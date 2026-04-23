@@ -85,6 +85,7 @@ export type EntityFieldDefinition = {
   name: string;
   type: EntityFieldType;
   required: boolean;
+  multiple?: boolean;
   label: string | null;
   defaultValue?: unknown;
   validations?: Record<string, unknown> | null;

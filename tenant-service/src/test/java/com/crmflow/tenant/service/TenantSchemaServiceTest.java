@@ -8,7 +8,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
-import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.verify;

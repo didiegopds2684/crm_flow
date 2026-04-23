@@ -1,36 +1,30 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { backendFetch, clearAuthCookies, REFRESH_COOKIE } from "@/lib/backend";
 
-import {
-  backendFetch,
-  clearAuthCookies,
-  getRefreshToken
-} from "@/lib/backend";
+export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const refreshToken = getRefreshToken();
+  let refreshToken: string | null = null;
+  try {
+    refreshToken = cookies().get(REFRESH_COOKIE)?.value ?? null;
+  } catch {}
 
   if (refreshToken) {
     try {
       await backendFetch("/api/v1/auth/logout", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ refreshToken })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
       });
     } catch {
-      // Ignore logout transport errors and always clear local session cookies.
+      // Always clear local session cookies even if backend call fails.
     }
   }
 
   clearAuthCookies();
   return NextResponse.json(
-    {
-      data: null,
-      message: "Sessão encerrada",
-      success: true
-    },
+    { data: null, message: "Sessão encerrada", success: true },
     { status: 200 }
   );
 }
-

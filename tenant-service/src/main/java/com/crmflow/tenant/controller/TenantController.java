@@ -43,6 +43,13 @@ public class TenantController {
         return ResponseEntity.ok(ApiResponse.of(tenantService.findAll()));
     }
 
+    @GetMapping("/my")
+    @Operation(summary = "Lista os tenants do usuário autenticado")
+    public ResponseEntity<ApiResponse<List<TenantResponse>>> findMine(Authentication authentication) {
+        UUID userId = UUID.fromString(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.of(tenantService.findMyTenants(userId)));
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Busca tenant por ID")
     public ResponseEntity<ApiResponse<TenantResponse>> findById(@PathVariable UUID id) {
@@ -78,6 +85,16 @@ public class TenantController {
     @Operation(summary = "Lista usuários do tenant")
     public ResponseEntity<ApiResponse<List<TenantUserResponse>>> listUsers(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.of(tenantService.listUsers(id)));
+    }
+
+    @PatchMapping("/{id}/users/{userId}")
+    @Operation(summary = "Atualiza a role de um usuário no tenant")
+    public ResponseEntity<ApiResponse<TenantUserResponse>> updateUserRole(
+            @PathVariable UUID id,
+            @PathVariable UUID userId,
+            @Valid @RequestBody UpdateUserRoleRequest request) {
+        TenantUserResponse response = tenantService.updateUserRole(id, userId, request.role());
+        return ResponseEntity.ok(ApiResponse.of(response, "Role atualizada com sucesso"));
     }
 
     @DeleteMapping("/{id}/users/{userId}")

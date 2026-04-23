@@ -58,6 +58,16 @@ public class TenantService {
     }
 
     @Transactional(readOnly = true)
+    public List<TenantResponse> findMyTenants(UUID userId) {
+        List<UUID> tenantIds = tenantUserRepository.findByUserId(userId).stream()
+                .map(TenantUser::getTenantId)
+                .toList();
+        return tenantRepository.findAllById(tenantIds).stream()
+                .map(TenantResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public TenantResponse findById(UUID id) {
         return tenantRepository.findById(id)
                 .map(TenantResponse::from)
@@ -109,6 +119,15 @@ public class TenantService {
         return tenantUserRepository.findByTenantId(tenantId).stream()
                 .map(TenantUserResponse::from)
                 .toList();
+    }
+
+    public TenantUserResponse updateUserRole(UUID tenantId, UUID userId, String role) {
+        TenantUser tu = tenantUserRepository.findByTenantIdAndUserId(tenantId, userId)
+                .orElseThrow(() -> new TenantNotFoundException("Usuário não é membro deste tenant"));
+        tu.setRole(role);
+        TenantUser saved = tenantUserRepository.save(tu);
+        log.info("Role atualizada: tenantId={}, userId={}, role={}", tenantId, userId, role);
+        return TenantUserResponse.from(saved);
     }
 
     public void removeUser(UUID tenantId, UUID userId) {

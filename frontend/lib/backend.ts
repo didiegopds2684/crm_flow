@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import type { ApiResponse, LoginResponse, TokenResponse } from "@/lib/types";
 
-export const ACCESS_COOKIE = "crmflow.access_token";
+export const ACCESS_COOKIE  = "crmflow.access_token";
 export const REFRESH_COOKIE = "crmflow.refresh_token";
 export const EXPIRES_COOKIE = "crmflow.access_expires_at";
 
@@ -13,8 +13,17 @@ function getCookieOptions(maxAge?: number) {
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    ...(typeof maxAge === "number" ? { maxAge } : {})
+    ...(typeof maxAge === "number" ? { maxAge } : {}),
   };
+}
+
+// Safely reads the cookie store — returns null if called outside a request context.
+function safeCookies() {
+  try {
+    return cookies();
+  } catch {
+    return null;
+  }
 }
 
 export function getBackendBaseUrl() {
@@ -33,123 +42,117 @@ export async function backendFetch(path: string, init?: RequestInit) {
     cache: "no-store",
     headers: {
       Accept: "application/json",
-      ...(init?.headers ?? {})
-    }
+      ...(init?.headers ?? {}),
+    },
   });
 }
 
 export function setLoginCookies(session: LoginResponse) {
-  const cookieStore = cookies();
+  const store = safeCookies();
+  if (!store) return;
   const expiresAt = Date.now() + session.expiresIn * 1000;
-
-  cookieStore.set(ACCESS_COOKIE, session.accessToken, getCookieOptions(session.expiresIn));
-  cookieStore.set(REFRESH_COOKIE, session.refreshToken, getCookieOptions(60 * 60 * 24 * 7));
-  cookieStore.set(EXPIRES_COOKIE, String(expiresAt), getCookieOptions(session.expiresIn));
+  store.set(ACCESS_COOKIE,  session.accessToken,  getCookieOptions(session.expiresIn));
+  store.set(REFRESH_COOKIE, session.refreshToken, getCookieOptions(60 * 60 * 24 * 7));
+  store.set(EXPIRES_COOKIE, String(expiresAt),    getCookieOptions(session.expiresIn));
 }
 
-function setAccessCookies(session: TokenResponse) {
-  const cookieStore = cookies();
+function setAccessCookies(store: ReturnType<typeof cookies>, session: TokenResponse) {
   const expiresAt = Date.now() + session.expiresIn * 1000;
-
-  cookieStore.set(ACCESS_COOKIE, session.accessToken, getCookieOptions(session.expiresIn));
-  cookieStore.set(EXPIRES_COOKIE, String(expiresAt), getCookieOptions(session.expiresIn));
+  store.set(ACCESS_COOKIE,  session.accessToken, getCookieOptions(session.expiresIn));
+  store.set(EXPIRES_COOKIE, String(expiresAt),   getCookieOptions(session.expiresIn));
 }
 
 export function clearAuthCookies() {
-  const cookieStore = cookies();
-  cookieStore.delete(ACCESS_COOKIE);
-  cookieStore.delete(REFRESH_COOKIE);
-  cookieStore.delete(EXPIRES_COOKIE);
-}
-
-export function getRefreshToken() {
-  return cookies().get(REFRESH_COOKIE)?.value ?? null;
+  const store = safeCookies();
+  if (!store) return;
+  store.delete(ACCESS_COOKIE);
+  store.delete(REFRESH_COOKIE);
+  store.delete(EXPIRES_COOKIE);
 }
 
 export function hasSessionCookies() {
-  const cookieStore = cookies();
+  const store = safeCookies();
+  if (!store) return false;
   return Boolean(
-    cookieStore.get(ACCESS_COOKIE)?.value || cookieStore.get(REFRESH_COOKIE)?.value
+    store.get(ACCESS_COOKIE)?.value || store.get(REFRESH_COOKIE)?.value
   );
 }
 
-export async function refreshAccessToken() {
-  const refreshToken = getRefreshToken();
+// Reads all auth tokens in one synchronous call — before any awaits.
+function readAuthTokens() {
+  const store = safeCookies();
+  if (!store) return { accessToken: null, refreshToken: null, store: null };
+  return {
+    accessToken:  store.get(ACCESS_COOKIE)?.value  ?? null,
+    refreshToken: store.get(REFRESH_COOKIE)?.value ?? null,
+    store,
+  };
+}
 
-  if (!refreshToken) {
-    clearAuthCookies();
-    return false;
-  }
-
+async function refreshAccessToken(refreshToken: string, store: ReturnType<typeof cookies>) {
   const response = await backendFetch("/api/v1/auth/refresh", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ refreshToken })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
   });
 
   if (!response.ok) {
     clearAuthCookies();
-    return false;
+    return null;
   }
 
   const payload = (await response.json()) as ApiResponse<TokenResponse>;
-
   if (!payload.data?.accessToken) {
     clearAuthCookies();
-    return false;
+    return null;
   }
 
-  setAccessCookies(payload.data);
-  return true;
+  setAccessCookies(store, payload.data);
+  return payload.data.accessToken;
 }
 
 export async function authorizedBackendFetch(path: string, init?: RequestInit) {
-  const accessToken = cookies().get(ACCESS_COOKIE)?.value;
+  // Read ALL tokens before the first await to avoid losing request context.
+  const { accessToken, refreshToken, store } = readAuthTokens();
+
   const response = await backendFetch(path, {
     ...init,
     headers: {
       ...(init?.headers ?? {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
-    }
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
   });
 
   if (response.status !== 401) {
     return response;
   }
 
-  const refreshed = await refreshAccessToken();
-
-  if (!refreshed) {
+  if (!refreshToken || !store) {
     return response;
   }
 
-  const nextAccessToken = cookies().get(ACCESS_COOKIE)?.value;
+  const newToken = await refreshAccessToken(refreshToken, store);
+  if (!newToken) {
+    return response;
+  }
 
   return backendFetch(path, {
     ...init,
     headers: {
       ...(init?.headers ?? {}),
-      ...(nextAccessToken ? { Authorization: `Bearer ${nextAccessToken}` } : {})
-    }
+      Authorization: `Bearer ${newToken}`,
+    },
   });
 }
 
 export async function forwardJson(response?: Response) {
   if (!response) {
     return NextResponse.json(
-      {
-        error: "METHOD_NOT_ALLOWED",
-        message: "Método não suportado",
-        status: 405
-      },
+      { error: "METHOD_NOT_ALLOWED", message: "Método não suportado", status: 405 },
       { status: 405 }
     );
   }
-
   const text = await response.text();
   const payload = text ? JSON.parse(text) : null;
   return NextResponse.json(payload, { status: response.status });
 }
-

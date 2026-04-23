@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -83,5 +84,50 @@ public class AuthService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(() -> new InvalidCredentialsException("Usuário não encontrado"));
         return UserResponse.from(user);
+    }
+
+    public UserResponse updateUser(UUID userId, UpdateUserRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new InvalidCredentialsException("Usuário não encontrado"));
+
+        if (request.name() != null && !request.name().isBlank()) {
+            user.setName(request.name().trim());
+        }
+
+        if (request.email() != null && !request.email().isBlank()) {
+            String newEmail = request.email().toLowerCase().trim();
+            if (!newEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                throw new InvalidCredentialsException("Formato de email inválido: " + newEmail);
+            }
+            if (!newEmail.equals(user.getEmail()) && userRepository.existsByEmail(newEmail)) {
+                throw new UserAlreadyExistsException("Email já cadastrado: " + newEmail);
+            }
+            user.setEmail(newEmail);
+        }
+
+        if (request.newPassword() != null && !request.newPassword().isBlank()) {
+            if (request.currentPassword() == null || !passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+                throw new InvalidCredentialsException("Senha atual incorreta");
+            }
+            user.setPassword(passwordEncoder.encode(request.newPassword()));
+        }
+
+        User saved = userRepository.save(user);
+        log.info("Usuário atualizado: id={}", saved.getId());
+        return UserResponse.from(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public UserResponse findByEmail(String email) {
+        return userRepository.findByEmail(email.toLowerCase().trim())
+                .map(UserResponse::from)
+                .orElse(null);
+    }
+
+    public List<UserResponse> getUsersByIds(List<UUID> ids) {
+        return userRepository.findAllById(ids)
+                .stream()
+                .map(UserResponse::from)
+                .toList();
     }
 }

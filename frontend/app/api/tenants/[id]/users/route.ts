@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 
 import {
   authorizedBackendFetch,
+
   clearAuthCookies,
   forwardJson
 } from "@/lib/backend";
+
+export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: {
