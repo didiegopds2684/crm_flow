@@ -81,11 +81,14 @@ export type EntityFieldType =
   | "ENUM"
   | "RELATION";
 
+export type EntityFieldRole = "IDENTITY" | "HIGHLIGHT" | "COMMON";
+
 export type EntityFieldDefinition = {
   name: string;
   type: EntityFieldType;
   required: boolean;
   multiple?: boolean;
+  role?: EntityFieldRole;
   label: string | null;
   defaultValue?: unknown;
   validations?: Record<string, unknown> | null;

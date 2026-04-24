@@ -6,7 +6,7 @@ import {
   Drawer, Field, Toggle, inputStyle, inputErrorStyle, Icon,
 } from "@/components/ui/primitives";
 import { useTenantContext } from "@/components/shell/tenant-context";
-import type { EntityDefinitionResponse, EntityFieldDefinition, EntityFieldType, ApiResponse } from "@/lib/types";
+import type { EntityDefinitionResponse, EntityFieldDefinition, EntityFieldType, EntityFieldRole, ApiResponse } from "@/lib/types";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -77,6 +77,7 @@ type FieldDraft = {
   type: EntityFieldType;
   required: boolean;
   multiple: boolean;
+  role: EntityFieldRole;
   relatedEntity: string;
   options: string[];
   optionInput: string;
@@ -91,7 +92,7 @@ function makeFieldDraft(overrides?: Partial<FieldDraft>): FieldDraft {
   return {
     uid: Math.random().toString(36).slice(2),
     name: "", nameTouched: false,
-    label: "", type: "STRING", required: false, multiple: false,
+    label: "", type: "STRING", required: false, multiple: false, role: "COMMON",
     relatedEntity: "", options: [], optionInput: "",
     minLen: "", maxLen: "", minVal: "", maxVal: "",
     open: true,
@@ -111,6 +112,28 @@ function buildFieldValidations(f: FieldDraft) {
     if (f.maxVal) v.max = Number(f.maxVal);
   }
   return Object.keys(v).length > 0 ? v : null;
+}
+
+function fieldDefToDraft(f: EntityFieldDefinition): FieldDraft {
+  const val = f.validations as Record<string, unknown> | null | undefined;
+  return {
+    uid: Math.random().toString(36).slice(2),
+    name: f.name,
+    nameTouched: true,
+    label: f.label ?? f.name,
+    type: f.type,
+    required: f.required,
+    multiple: f.multiple ?? false,
+    role: f.role ?? "COMMON",
+    relatedEntity: (val?.entity as string) ?? "",
+    options: f.options ?? [],
+    optionInput: "",
+    minLen: val?.minLength != null ? String(val.minLength) : "",
+    maxLen: val?.maxLength != null ? String(val.maxLength) : "",
+    minVal: val?.min != null ? String(val.min) : "",
+    maxVal: val?.max != null ? String(val.max) : "",
+    open: true,
+  };
 }
 
 // ─── Field Accordion Item ─────────────────────────────────────────────────────
@@ -153,8 +176,10 @@ function FieldAccordionItem({
         <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>
           {f.label || f.name || <span style={{ color: "var(--muted)", fontWeight: 400 }}>Campo {index + 1}</span>}
         </span>
+        {f.role === "IDENTITY"  && <Pill tone="green">Identidade</Pill>}
+        {f.role === "HIGHLIGHT" && <Pill tone="blue">Destaque</Pill>}
         {f.required && <Pill tone="amber">Obrigatório</Pill>}
-        {f.multiple && <Pill tone="blue">Múltiplo</Pill>}
+        {f.multiple && <Pill tone="neutral">Múltiplo</Pill>}
         {hasError && <span style={{ color: "#7a2020", fontSize: 11, fontWeight: 700 }}>Erro</span>}
         {canRemove && (
           <button
@@ -314,6 +339,26 @@ function FieldAccordionItem({
             </Field>
           )}
 
+          {/* Role */}
+          <Field label="Papel na relação" hint="Define a importância do campo ao exibir registros em lookups.">
+            <div style={{ display: "flex", gap: 6 }}>
+              {([
+                { value: "IDENTITY", label: "Identidade", hint: "Nome principal" },
+                { value: "HIGHLIGHT", label: "Destaque",   hint: "Info secundária" },
+                { value: "COMMON",    label: "Comum",      hint: "Não exibido"    },
+              ] as { value: EntityFieldRole; label: string; hint: string }[]).map((r) => {
+                const active = f.role === r.value;
+                return (
+                  <button key={r.value} type="button" onClick={() => onChange(f.uid, { role: r.value })}
+                    style={{ flex: 1, padding: "7px 6px", borderRadius: 8, cursor: "pointer", border: active ? "2px solid #1c3d58" : "2px solid transparent", background: active ? "rgba(28,61,88,0.10)" : "rgba(255,255,255,0.8)", color: active ? "#1c3d58" : "var(--muted)", fontSize: 11, fontWeight: 700, textAlign: "center", outline: "none" }}>
+                    {r.label}
+                    <div style={{ fontSize: 10, fontWeight: 400, marginTop: 1, opacity: 0.75 }}>{r.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
           {/* Required + Multiple */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingTop: 2 }}>
             <Toggle
@@ -354,7 +399,7 @@ function NewEntityDrawer({
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
   const [fields,      setFields]      = useState<FieldDraft[]>([
-    makeFieldDraft({ label: "Nome", name: "nome", required: true }),
+    makeFieldDraft({ label: "Nome", name: "nome", required: true, role: "IDENTITY" }),
   ]);
   const [errors,      setErrors]      = useState<EntityFormErrors>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -365,7 +410,7 @@ function NewEntityDrawer({
     if (open) {
       setName(""); setSlug(""); setSlugTouched(false);
       setDisplayName(""); setDescription("");
-      setFields([makeFieldDraft({ label: "Nome", name: "nome", required: true })]);
+      setFields([makeFieldDraft({ label: "Nome", name: "nome", required: true, role: "IDENTITY" })]);
       setErrors({}); setFieldErrors({});
       setTimeout(() => nameRef.current?.focus(), 120);
     }
@@ -446,6 +491,7 @@ function NewEntityDrawer({
         type: f.type,
         required: f.required,
         multiple: f.multiple,
+        role: f.role,
         label: f.label.trim() || f.name,
         defaultValue: null,
         validations: buildFieldValidations(f),
@@ -669,6 +715,7 @@ function NewFieldDrawer({
       type: f.type,
       required: f.required,
       multiple: f.multiple,
+      role: f.role,
       defaultValue: undefined,
       validations: buildFieldValidations(f),
       options: f.type === "ENUM" ? f.options : null,
@@ -753,6 +800,147 @@ function NewFieldDrawer({
   );
 }
 
+// ─── Edit Field Drawer ────────────────────────────────────────────────────────
+
+function EditFieldDrawer({
+  open, tenantId, entity, field, otherEntities, onClose, onSaved,
+}: {
+  open: boolean;
+  tenantId: string;
+  entity: EntityDefinitionResponse;
+  field: EntityFieldDefinition;
+  otherEntities: EntityDefinitionResponse[];
+  onClose: () => void;
+  onSaved: (e: EntityDefinitionResponse) => void;
+}) {
+  const [draft,      setDraft]      = useState<FieldDraft>(() => fieldDefToDraft(field));
+  const [fieldErrors,setFieldErrors] = useState<Record<string, string>>({});
+  const [general,    setGeneral]    = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const originalName = field.name;
+
+  useEffect(() => {
+    if (open) {
+      setDraft(fieldDefToDraft(field));
+      setFieldErrors({}); setGeneral("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  function updateField(uid: string, patch: Partial<FieldDraft>) {
+    setDraft((prev) => {
+      if (prev.uid !== uid) return prev;
+      const updated = { ...prev, ...patch };
+      if ("label" in patch && !updated.nameTouched) {
+        updated.name = toFieldName(updated.label);
+      }
+      return updated;
+    });
+  }
+
+  function validate(): Record<string, string> {
+    const fe: Record<string, string> = {};
+    const otherNames = new Set(entity.fields.filter((f) => f.name !== originalName).map((f) => f.name));
+
+    if (!draft.name || !/^[a-z][a-z0-9_]*$/.test(draft.name)) {
+      fe[`${draft.uid}.name`] = "Nome inválido.";
+    } else if (otherNames.has(draft.name)) {
+      fe[`${draft.uid}.name`] = `"${draft.name}" já existe em outro campo.`;
+    }
+    if (draft.type === "RELATION" && !draft.relatedEntity) fe[`${draft.uid}.relation`] = "Selecione a entidade alvo.";
+    if (draft.type === "ENUM" && draft.options.length < 2) fe[`${draft.uid}.options`] = "Mínimo 2 opções.";
+    return fe;
+  }
+
+  async function handleSubmit() {
+    setGeneral("");
+    const fe = validate();
+    if (Object.keys(fe).length > 0) { setFieldErrors(fe); return; }
+    setFieldErrors({}); setSubmitting(true);
+
+    const updatedField: EntityFieldDefinition = {
+      name: draft.name,
+      label: draft.label.trim() || draft.name,
+      type: draft.type,
+      required: draft.required,
+      multiple: draft.multiple,
+      role: draft.role,
+      defaultValue: undefined,
+      validations: buildFieldValidations(draft),
+      options: draft.type === "ENUM" ? draft.options : null,
+    };
+
+    const body = {
+      name: entity.name,
+      slug: entity.slug,
+      displayName: entity.displayName,
+      description: entity.description,
+      icon: entity.icon,
+      fields: entity.fields.map((f) => (f.name === originalName ? updatedField : f)),
+    };
+
+    try {
+      const res = await fetch(`/api/entities/definitions/${entity.slug}?tenantId=${tenantId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data: ApiResponse<EntityDefinitionResponse> = await res.json();
+      if (!res.ok || !data.data) { setGeneral((data as { message?: string }).message ?? "Erro ao salvar campo."); return; }
+      onSaved(data.data);
+      onClose();
+    } catch {
+      setGeneral("Erro de conexão. Tente novamente.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const nameChanged = draft.name !== originalName;
+
+  return (
+    <Drawer
+      open={open} onClose={onClose} width={520}
+      title="Editar campo"
+      subtitle={`Campo "${originalName}" em ${entity.displayName ?? entity.name}`}
+      footer={
+        <>
+          <GhostBtn onClick={onClose} disabled={submitting}>Cancelar</GhostBtn>
+          <AccentBtn icon="edit" onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "Salvando…" : "Salvar alterações"}
+          </AccentBtn>
+        </>
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {general && (
+          <div style={{ background: "rgba(138,47,47,0.08)", border: "1px solid rgba(138,47,47,0.22)", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#7a2020", fontWeight: 500, display: "flex", alignItems: "center", gap: 10 }}>
+            <Icon name="x" size={15} stroke="#7a2020" /> {general}
+          </div>
+        )}
+
+        {nameChanged && (
+          <div style={{ background: "rgba(211,109,63,0.08)", border: "1px solid rgba(211,109,63,0.28)", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#8a4010", lineHeight: 1.5 }}>
+            <strong>Atenção:</strong> renomear um campo de <code style={{ fontFamily: "ui-monospace,monospace", fontSize: 11 }}>{originalName}</code> para <code style={{ fontFamily: "ui-monospace,monospace", fontSize: 11 }}>{draft.name}</code> pode afetar registros existentes que referenciam o nome antigo.
+          </div>
+        )}
+
+        <FieldAccordionItem
+          f={draft}
+          index={0}
+          errors={fieldErrors}
+          existingEntities={otherEntities}
+          canRemove={false}
+          onChange={updateField}
+          onToggle={() => {}}
+          onRemove={() => {}}
+        />
+      </div>
+    </Drawer>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function EntitiesPage() {
@@ -761,8 +949,10 @@ export default function EntitiesPage() {
   const [selected,    setSelected]    = useState<EntityDefinitionResponse | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [search,      setSearch]      = useState("");
-  const [newEntityOpen, setNewEntityOpen] = useState(false);
-  const [newFieldOpen,  setNewFieldOpen]  = useState(false);
+  const [newEntityOpen,  setNewEntityOpen]  = useState(false);
+  const [newFieldOpen,   setNewFieldOpen]   = useState(false);
+  const [editFieldOpen,  setEditFieldOpen]  = useState(false);
+  const [editingField,   setEditingField]   = useState<EntityFieldDefinition | null>(null);
 
   useEffect(() => {
     if (!activeTenant) { setEntities([]); setSelected(null); return; }
@@ -925,7 +1115,7 @@ export default function EntitiesPage() {
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead>
                       <tr style={{ background: "rgba(19,33,47,0.03)", textAlign: "left" }}>
-                        {["Campo", "Label", "Tipo", "Obrigatório", "Múltiplo", "Validações / Opções"].map((h, i) => (
+                        {["Campo", "Label", "Tipo", "Obrigatório", "Múltiplo", "Validações / Opções", ""].map((h, i) => (
                           <th key={i} style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--muted)", borderBottom: "1px solid var(--line)", whiteSpace: "nowrap" }}>{h}</th>
                         ))}
                       </tr>
@@ -956,6 +1146,16 @@ export default function EntitiesPage() {
                             </td>
                             <td style={{ padding: "12px 16px", color: "var(--muted)", fontFamily: "ui-monospace,monospace", fontSize: 11, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {validSummary}
+                            </td>
+                            <td style={{ padding: "8px 12px", textAlign: "right" }}>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingField(f); setEditFieldOpen(true); }}
+                                title="Editar campo"
+                                style={{ border: "1px solid var(--line)", background: "rgba(255,255,255,0.9)", borderRadius: 7, padding: "5px 8px", cursor: "pointer", display: "inline-flex", alignItems: "center", color: "var(--muted)" }}
+                              >
+                                <Icon name="edit" size={14} />
+                              </button>
                             </td>
                           </tr>
                         );
@@ -995,6 +1195,18 @@ export default function EntitiesPage() {
           entity={selected}
           otherEntities={entities.filter((e) => e.id !== selected.id)}
           onClose={() => setNewFieldOpen(false)}
+          onSaved={handleFieldSaved}
+        />
+      )}
+
+      {activeTenant && selected && editingField && (
+        <EditFieldDrawer
+          open={editFieldOpen}
+          tenantId={activeTenant.id}
+          entity={selected}
+          field={editingField}
+          otherEntities={entities.filter((e) => e.id !== selected.id)}
+          onClose={() => { setEditFieldOpen(false); setEditingField(null); }}
           onSaved={handleFieldSaved}
         />
       )}
